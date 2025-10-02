@@ -1,10 +1,9 @@
-# CAN OTA Firmware for RP2040 Pulsadores
+# CAN OTA Firmware for RP2040
 
 This project pairs a CAN-enabled firmware for an RP2040-based controller with a companion Python host utility to perform over-the-air (OTA) firmware updates via an MCP2515 CAN transceiver. The firmware keeps the device responsive while new images are streamed over CAN, verifies integrity with CRC16, and automatically reboots into the freshly written sketch once the transfer succeeds.
 
 ## Repository Layout
 
-- `pulsadores_can_v1_ota.ino` – production sketch for the pulsadores controller with CAN OTA support and a 500 ms white LED heartbeat.
 - `example_can_ota.ino` – minimal example sketch demonstrating the OTA logic without the legacy switch handling.
 - `can_ota_host.py` – Python 3 script that fragments a compiled `.bin` file into CAN frames, manages retries, and tracks device status codes.
 
@@ -18,7 +17,7 @@ This project pairs a CAN-enabled firmware for an RP2040-based controller with a 
 
 ## Hardware Requirements
 
-- RP2040 board (e.g., Raspberry Pi Pico or compatible) running the Arduino core.
+- RP2040 board (e.g., RP2040-Zero, Raspberry Pi Pico or compatible) running the Arduino core.
 - MCP2515 CAN controller module wired to the RP2040 SPI pins and CS on GPIO5, SCK on GPIO2, MOSI on GPIO4, MISO on GPIO3.
 - One WS2812/NeoPixel LED connected to GPIO16 (pin configurable in the sketch).
 - CAN transceiver and a 500 kbps CAN bus for data exchange with the host tool.
@@ -27,13 +26,13 @@ This project pairs a CAN-enabled firmware for an RP2040-based controller with a 
 ## Building and Flashing the Firmware
 
 1. Install the Arduino core for RP2040 and the required libraries (`NeoPixelBus`, `Adafruit_MCP2515`).
-2. Open `pulsadores_can_v1_ota.ino` (or `example_can_ota.ino`) in the Arduino IDE.
+2. Open `example_can_ota`  in the Arduino IDE.
 3. Select the correct RP2040 board and serial port.
 4. Compile and upload the sketch normally to seed the device with a baseline firmware.
 5. To generate a binary for OTA updates, use the Arduino IDE "Export Compiled Binary" option or run Arduino CLI:
 
    ```bash
-   arduino-cli compile --fqbn rp2040:rp2040:pico pulsadores_can_v1_ota.ino --output-dir build
+   arduino-cli compile --fqbn rp2040:rp2040:pico example_can_ota.ino --output-dir build
    ```
 
    The generated `.bin` file (not the `.uf2`) is the artifact consumed by the host tool.
