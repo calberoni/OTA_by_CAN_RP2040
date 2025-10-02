@@ -131,7 +131,3 @@ The tool automatically sends `BEGIN`, streams the firmware in 6-byte payloads, w
 - Increase chunk size by migrating to CAN-FD, or implement dynamic chunk sizing with sequence numbers.
 - Integrate the host tool into CI/CD pipelines by scripting Arduino CLI compilation and automatic CAN deployment.
 - Report detailed progress to a UI dashboard by consuming the status counters.
-
-## License
-
-No explicit license is provided in this repository. Consult the project owner before redistributing or reusing the code.
