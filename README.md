@@ -1,41 +1,62 @@
 # CAN OTA Firmware for RP2040
 
-This project pairs a CAN-enabled firmware for an RP2040-based controller with a companion Python host utility to perform over-the-air (OTA) firmware updates via an MCP2515 CAN transceiver. The firmware keeps the device responsive while new images are streamed over CAN, verifies integrity with CRC16, and automatically reboots into the freshly written sketch once the transfer succeeds.
+This project implements a CAN-enabled firmware for an RP2040-based controller using the Raspberry Pi Pico SDK together with a companion Python host utility to perform over-the-air (OTA) firmware updates via an MCP2515 CAN transceiver. The runtime keeps the device responsive while new images are streamed over CAN, verifies integrity with CRC16, and automatically reboots into the freshly written application once the transfer succeeds.
 
 ## Repository Layout
 
-- `example_can_ota.ino` – minimal example sketch demonstrating the OTA logic without the legacy switch handling.
+- `CMakeLists.txt`, `pico_sdk_import.cmake` – build system for the Pico SDK application.
+- `src/` – command-handler implementation, MCP2515 driver, WS2812 PIO program, and application entry point.
+- `include/` – public headers for the firmware modules.
 - `can_ota_host.py` – Python 3 script that fragments a compiled `.bin` file into CAN frames, manages retries, and tracks device status codes.
+- `example_can_ota.ino` – legacy Arduino sketch kept as a reference for the original implementation.
 
 ## Firmware Highlights
 
-- Targets RP2040 boards using the Arduino core, together with an external MCP2515 CAN controller.
-- Handles OTA commands on CAN ID `0x381` and returns status on CAN ID `0x382`.
-- Streams firmware directly to flash with the Arduino `Update` API while the current firmware keeps running.
+- Targets RP2040 boards using the Raspberry Pi Pico SDK, together with an external MCP2515 CAN controller.
+- Implements a command pattern dispatcher for OTA opcodes (`Begin`, `Data`, `End`, `Abort`) carried on CAN ID `0x381` and returns status on CAN ID `0x382`.
+- Buffers incoming firmware in RAM via a `FlashWriter` abstraction so production images can be handed off to a bootloader or flash routine.
 - Validates each transfer with CRC16-CCITT and aborts safely on mismatch or timeout.
-- Provides a default 500 ms white blink on the NeoPixel (WS2812) to indicate the application loop is alive.
+- Drives a WS2812 status LED through PIO with a default 500 ms white blink to indicate the application loop is alive.
 
 ## Hardware Requirements
 
-- RP2040 board (e.g., RP2040-Zero, Raspberry Pi Pico or compatible) running the Arduino core.
-- MCP2515 CAN controller module wired to the RP2040 SPI pins and CS on GPIO5, SCK on GPIO2, MOSI on GPIO4, MISO on GPIO3.
-- One WS2812/NeoPixel LED connected to GPIO16 (pin configurable in the sketch).
-- CAN transceiver and a 500 kbps CAN bus for data exchange with the host tool.
+- RP2040 board (e.g., Raspberry Pi Pico, RP2040-Zero or compatible) wired for use with the Pico SDK build outputs.
+- MCP2515 CAN controller module wired to RP2040 SPI pins with CS on GPIO5, SCK on GPIO2, MOSI on GPIO4, MISO on GPIO3.
+- One WS2812/NeoPixel LED connected to GPIO16 (pin configurable in `src/main.cpp`).
+- CAN transceiver and a 500 kbps CAN bus shared with the host tool.
 - Stable 3.3 V power supply; ensure the MCP2515 module level shifts correctly for 3.3 V logic.
 
 ## Building and Flashing the Firmware
 
-1. Install the Arduino core for RP2040 and the required libraries (`NeoPixelBus`, `Adafruit_MCP2515`).
-2. Open `example_can_ota`  in the Arduino IDE.
-3. Select the correct RP2040 board and serial port.
-4. Compile and upload the sketch normally to seed the device with a baseline firmware.
-5. To generate a binary for OTA updates, use the Arduino IDE "Export Compiled Binary" option or run Arduino CLI:
+1. Install the Raspberry Pi Pico SDK and export `PICO_SDK_PATH`:
 
    ```bash
-   arduino-cli compile --fqbn rp2040:rp2040:pico example_can_ota.ino --output-dir build
+   git clone https://github.com/raspberrypi/pico-sdk.git --branch master --depth 1
+   export PICO_SDK_PATH=/path/to/pico-sdk
    ```
 
-   The generated `.bin` file (not the `.uf2`) is the artifact consumed by the host tool.
+   Add the export to your shell profile for convenience.
+
+2. Configure and build the firmware with CMake:
+
+   ```bash
+   mkdir -p build
+   cd build
+   cmake ..
+   cmake --build .
+   ```
+
+   The build generates UF2, ELF, and BIN artifacts under `build/`.
+
+3. Flash the device by copying the produced UF2 to the RP2040 boot ROM drive or by using `openocd`/`picotool` from the build tree:
+
+   ```bash
+   picotool load can_ota.uf2 --family rp2040
+   ```
+
+   Once flashed, the device boots into the CAN OTA runtime and is ready to accept OTA transfers.
+
+4. Generate OTA payloads by using the `can_ota.bin` output from the build directory (or another application binary produced with the same OTA interface) and feed it to the host tool described below.
 
 ## CAN OTA Protocol Summary
 
@@ -77,7 +98,7 @@ python can_ota_host.py firmware.bin \
   --log-level INFO
 ```
 
-- `firmware.bin` – path to the compiled Arduino binary (not UF2).
+- `firmware.bin` – path to the compiled binary produced by the Pico SDK build (not UF2).
 - `--bustype` – backend for `python-can` (socketcan, slcan, pcantype, etc.).
 - `--channel` – CAN interface name.
 - `--bitrate` – CAN bus speed (must match the device).
@@ -100,9 +121,9 @@ The tool automatically sends `BEGIN`, streams the firmware in 6-byte payloads, w
 
 - **No status frames received** – Verify wiring to the MCP2515, CAN termination, and that the host tool is listening on the correct interface/bus speed.
 - **Repeated `DATA_ERROR` or `ABORTED` statuses** – Check for bus congestion or dropped frames; increase `--timeout`/`--retries` and ensure the chunk generator is using the correct firmware size.
-- **CRC verification failure** – Ensure the host binary is unchanged between `BEGIN` and `END`; avoid mixing `.uf2` files, which include metadata, with raw `.bin` images.
-- **Device does not reboot** – Confirm the board defines `ARDUINO_ARCH_RP2040`; otherwise, a manual power cycle may be required.
-- **LED not blinking** – The LED is managed by `NeoPixelBus`; verify the WS2812 wiring and that GPIO16 is free from conflicts.
+- **CRC verification failure** – Ensure the host binary is unchanged between `BEGIN` and `END`; avoid using UF2 images as OTA payloads.
+- **Device does not reboot** – Confirm the watchdog is enabled in your hardware build; otherwise, trigger a manual reset after a successful OTA.
+- **LED not blinking** – The LED is driven through the PIO WS2812 helper; verify GPIO16 is free and that the PIO program was loaded (check build output for errors).
 
 ## Extending the Project
 
@@ -114,4 +135,3 @@ The tool automatically sends `BEGIN`, streams the firmware in 6-byte payloads, w
 ## License
 
 No explicit license is provided in this repository. Consult the project owner before redistributing or reusing the code.
-
